@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
 
 
 def test_api_timeout_is_used_in_client():
@@ -389,12 +388,26 @@ def test_resume_existing_sandbox_sets_internal_id():
 
 # --- saas_runtime_mode tests ---
 
+_CLOUD_URL = "https://app.all-hands.dev"
+_CLOUD_KEY = "test-key"
+
+
+def _make_saas_workspace(**overrides):
+    """Helper to create an OpenHandsCloudWorkspace in saas_runtime_mode."""
+    from openhands.workspace import OpenHandsCloudWorkspace
+
+    kwargs = {
+        "saas_runtime_mode": True,
+        "cloud_api_url": _CLOUD_URL,
+        "cloud_api_key": _CLOUD_KEY,
+        **overrides,
+    }
+    return OpenHandsCloudWorkspace(**kwargs)
+
 
 def test_saas_runtime_mode_skips_sandbox_creation():
     """In saas_runtime_mode, no sandbox is created or resumed."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    workspace = OpenHandsCloudWorkspace(saas_runtime_mode=True)
+    workspace = _make_saas_workspace()
 
     assert workspace.saas_runtime_mode is True
     assert workspace.host == "http://localhost:60000"
@@ -405,23 +418,15 @@ def test_saas_runtime_mode_skips_sandbox_creation():
 
 def test_saas_runtime_mode_custom_port():
     """Custom agent_server_port is reflected in host URL."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    workspace = OpenHandsCloudWorkspace(
-        saas_runtime_mode=True,
-        agent_server_port=9999,
-    )
+    workspace = _make_saas_workspace(agent_server_port=9999)
 
     assert workspace.host == "http://localhost:9999"
     workspace.cleanup()
 
 
-def test_saas_runtime_mode_with_cloud_credentials():
-    """Cloud API fields can still be provided in saas_runtime_mode."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    workspace = OpenHandsCloudWorkspace(
-        saas_runtime_mode=True,
+def test_saas_runtime_mode_cloud_credentials_available():
+    """Cloud API fields are available for get_llms / get_secrets."""
+    workspace = _make_saas_workspace(
         cloud_api_url="https://app.all-hands.dev/",
         cloud_api_key="my-key",
     )
@@ -431,21 +436,9 @@ def test_saas_runtime_mode_with_cloud_credentials():
     workspace.cleanup()
 
 
-def test_saas_runtime_mode_api_headers_empty_without_key():
-    """_api_headers returns empty dict when cloud_api_key is None."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    workspace = OpenHandsCloudWorkspace(saas_runtime_mode=True)
-
-    assert workspace._api_headers == {}
-    workspace.cleanup()
-
-
 def test_saas_runtime_mode_cleanup_does_not_delete_sandbox():
     """cleanup() in saas_runtime_mode should not call any Cloud API."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    workspace = OpenHandsCloudWorkspace(saas_runtime_mode=True)
+    workspace = _make_saas_workspace()
 
     with patch.object(workspace, "_send_api_request") as mock_req:
         workspace.cleanup()
@@ -454,23 +447,5 @@ def test_saas_runtime_mode_cleanup_does_not_delete_sandbox():
 
 def test_saas_runtime_mode_context_manager():
     """Context manager works in saas_runtime_mode without side effects."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    with OpenHandsCloudWorkspace(saas_runtime_mode=True) as ws:
+    with _make_saas_workspace() as ws:
         assert ws.host == "http://localhost:60000"
-
-
-def test_missing_cloud_api_url_without_saas_mode_raises():
-    """cloud_api_url is required when saas_runtime_mode is False."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    with pytest.raises(ValueError, match="cloud_api_url is required"):
-        OpenHandsCloudWorkspace(cloud_api_key="key")
-
-
-def test_missing_cloud_api_key_without_saas_mode_raises():
-    """cloud_api_key is required when saas_runtime_mode is False."""
-    from openhands.workspace import OpenHandsCloudWorkspace
-
-    with pytest.raises(ValueError, match="cloud_api_key is required"):
-        OpenHandsCloudWorkspace(cloud_api_url="https://example.com")

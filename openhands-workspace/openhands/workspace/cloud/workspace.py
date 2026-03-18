@@ -5,7 +5,7 @@ from urllib.request import urlopen
 
 import httpx
 import tenacity
-from pydantic import Field, PrivateAttr, model_validator
+from pydantic import Field, PrivateAttr
 
 from openhands.sdk.logger import get_logger
 from openhands.sdk.workspace.remote.base import RemoteWorkspace
@@ -45,7 +45,11 @@ class OpenHandsCloudWorkspace(RemoteWorkspace):
         )
 
         # Running inside an OpenHands Cloud Runtime (SaaS runtime mode)
-        workspace = OpenHandsCloudWorkspace(saas_runtime_mode=True)
+        workspace = OpenHandsCloudWorkspace(
+            saas_runtime_mode=True,
+            cloud_api_url="https://app.all-hands.dev",
+            cloud_api_key=os.environ["OPENHANDS_API_KEY"],
+        )
     """
 
     # Parent fields
@@ -74,20 +78,18 @@ class OpenHandsCloudWorkspace(RemoteWorkspace):
         ),
     )
 
-    # Cloud API fields (required when saas_runtime_mode is False)
-    cloud_api_url: str | None = Field(
-        default=None,
+    # Cloud API fields
+    cloud_api_url: str = Field(
         description=(
             "Base URL of OpenHands Cloud API "
             "(e.g., https://app.all-hands.dev). "
-            "Required when saas_runtime_mode is False."
+            "Required in all modes — used for get_llms / get_secrets."
         ),
     )
-    cloud_api_key: str | None = Field(
-        default=None,
+    cloud_api_key: str = Field(
         description=(
             "API key for authenticating with OpenHands Cloud. "
-            "Required when saas_runtime_mode is False."
+            "Required in all modes — used for get_llms / get_secrets."
         ),
     )
     sandbox_spec_id: str | None = Field(
@@ -123,22 +125,6 @@ class OpenHandsCloudWorkspace(RemoteWorkspace):
     _session_api_key: str | None = PrivateAttr(default=None)
     _exposed_urls: list[dict[str, Any]] | None = PrivateAttr(default=None)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _validate_cloud_fields(cls, values: dict[str, Any]) -> dict[str, Any]:
-        """Require cloud_api_url and cloud_api_key when not in SaaS mode."""
-        saas_mode = values.get("saas_runtime_mode", False)
-        if not saas_mode:
-            if not values.get("cloud_api_url"):
-                raise ValueError(
-                    "cloud_api_url is required when saas_runtime_mode is False"
-                )
-            if not values.get("cloud_api_key"):
-                raise ValueError(
-                    "cloud_api_key is required when saas_runtime_mode is False"
-                )
-        return values
-
     @property
     def client(self) -> httpx.Client:
         """Override client property to use api_timeout for HTTP requests."""
@@ -162,14 +148,11 @@ class OpenHandsCloudWorkspace(RemoteWorkspace):
 
         Uses Bearer token authentication as per OpenHands Cloud API.
         """
-        if self.cloud_api_key is None:
-            return {}
         return {"Authorization": f"Bearer {self.cloud_api_key}"}
 
     def model_post_init(self, context: Any) -> None:
         """Set up the sandbox and initialize the workspace."""
-        if self.cloud_api_url:
-            self.cloud_api_url = self.cloud_api_url.rstrip("/")
+        self.cloud_api_url = self.cloud_api_url.rstrip("/")
 
         if self.saas_runtime_mode:
             self._init_saas_runtime_mode()
